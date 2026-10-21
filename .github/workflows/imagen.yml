@@ -152,6 +152,18 @@ jobs:
               curl -sS -o /dev/null -D - "http://127.0.0.1:8080${ruta}" | grep -iq '^cache-control: no-cache' \
                 || { echo "::error::${ruta} sin Cache-Control: no-cache"; fallo=1; }
             done
+            # Logs sin la query (KubernetesInfrastructure#75): ni en la petición, ni por el Referer, ni en el error log
+            # (/thirdparty/ es una carpeta sin índice: «directory index is forbidden», que lleva request y referrer).
+            for ruta in '/?room=r&password=pruebaLog1' '/thirdparty/?password=pruebaLog1' '/no-existe.js?password=pruebaLog1'; do
+              curl -sS -o /dev/null -H 'Referer: https://reuniones.cenitdigital.es/?room=r&password=pruebaLog1' \
+                "http://127.0.0.1:8080${ruta}"
+            done
+            sleep 1
+            if docker logs prueba 2>&1 | grep -iE 'password|pruebaLog1'; then
+              echo "::error::la query o el Referer con la contraseña quedan en el log"; fallo=1
+            fi
+            docker logs prueba 2>/dev/null | grep -qF '"GET /thirdparty/ HTTP/1.1"' \
+              || { echo "::error::el access log no registra la ruta sin query"; fallo=1; }
           else
             # Cliente WebSocket con el Node de la propia imagen (WebSocket global de Node 22), en la red del contenedor.
             docker run --rm --network container:prueba --read-only --user "$USUARIO" --cap-drop ALL \
