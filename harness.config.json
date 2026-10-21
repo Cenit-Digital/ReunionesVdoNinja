@@ -1,12 +1,12 @@
 {
   "$schema": "./harness.schema.json",
-  "project": "mi-proyecto",
+  "project": "reuniones-vdo-ninja",
   "language": "generic",
-  "description": "Rellena este archivo con los comandos de TU stack. Es el único punto que hace al arnés dependiente del lenguaje. Ver docs/configuration.md y los adaptadores por stack en .harness/adapters/.",
+  "description": "Imágenes de VDO.Ninja para reuniones.cenitdigital.es: shellcheck del parche y tests con node --test.",
   "commands": {
     "install": "",
-    "lint": "",
-    "test": "",
+    "lint": "shellcheck src/web/parche-config.sh",
+    "test": "node --test tests/*.test.mjs",
     "mutate": "",
     "build": ""
   },

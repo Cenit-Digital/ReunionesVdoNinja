@@ -1,0 +1,17 @@
+			var session = WebRTC.Media; // session is a required global variable if configuring manually. Run before loading main.js but after webrtc.js.
+			session.version = "30.1"; // added director claim-time room admission controls (cap + bypass key + approval queue)
+			session.streamID = session.generateStreamID(); // randomly generates a streamID for this session. You can set your own programmatically if needed
+			
+			session.defaultPassword = "someEncryptionKey123"; // Change this password if self-deploying for added security/privacy
+			// session.salt = location.hostname; // used only if password is not == False. You can change to "session.salt = location.hostname+location.pathname;" for greater deployment isolation
+			
+			session.stunServers = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun.cloudflare.com:3478"]}]; // google + cloudflare stun servers. default
+			// session.configuration.iceTransportPolicy = "relay";  // uncomment to enable "&privacy" and force the TURN server's use
+
+			// session.wss = "wss://wss.vdo.ninja:443"; // US-East (Default)
+
+			//  If wanting to fully-self-host, uncomment the following and deploy your own websocket server; good for air-gapped deployments
+			// session.wss = "wss://wss.yourdomainhere.com:443"; // https://github.com/steveseguin/websocket_server 
+			// session.customWSS = true;
+			//////
+			
