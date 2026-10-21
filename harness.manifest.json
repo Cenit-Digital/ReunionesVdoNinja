@@ -21,12 +21,12 @@
   "blockSource": ".harness/agents-block.md",
   "mixedJson": [".claude/settings.json", "harness.config.json"],
   "project": [
-    ".editorconfig", ".gitattributes", ".gitignore", ".github/CODEOWNERS", ".github/workflows/harness-ci.yml",
+    ".editorconfig", ".gitattributes", ".gitignore", ".github/CODEOWNERS", ".github/workflows/harness-ci.yml", ".github/workflows/imagen.yml",
     "LICENSE", "README.md", "docs/architecture.md", "docs/conventions.md",
     "features/", "src/", "tests/"
   ],
   "excluded": [
-    ".agents/skills/", ".github/AUTONOMOUS.md", ".github/workflows/autonomous-evolve.yml",
+    ".agents/skills/", ".github/AUTONOMOUS.md",
     ".github/workflows/guard-sensitive-paths.yml", ".harness/agents-block.md", ".harness/test/", "docs/autonomous.md",
     "docs/decisiones/", "docs/memoria-organizacional.md",
     "scripts/sync-memoria.ps1", "scripts/sync-memoria.sh", "skills-lock.json"

@@ -5,25 +5,20 @@
 
 ## 1. Resumen del proyecto
 
-Plantilla de **desarrollo guiado por especificaciones (SSD)**, agnóstica al lenguaje: una política de trabajo (niveles de tarea, puerta humana en dos puntos, delegación por capacidad), un motor mínimo que ejecuta los comandos de tu stack y plantillas de issue y PR. Solo `harness.config.json` cambia por proyecto. Se versiona por tag y se propaga a los derivados con `scripts/harness-upgrade.mjs`.
+Empaqueta **VDO.Ninja** (código de terceros, AGPL-3.0-only) para `reuniones.cenitdigital.es`, la sala de reuniones de Cénit Digital. Este repo no desarrolla VDO.Ninja: fija una versión por commit y checksum, la configura con un parche mínimo y construye dos imágenes que publica en GHCR. El despliegue (Kubernetes, Traefik, certificados) vive en `Cenit-Digital/KubernetesInfrastructure` (issue #64, `kubernetes/apps/reuniones/`).
 
-*Proyecto derivado: sustituye las secciones 1 y 2 por las de tu proyecto; la 3, la 4 y la 5 sirven tal cual. El `/init` de tu herramienta te da un primer borrador (en Claude Code, vuélcalo en `AGENTS.md`, no en `CLAUDE.md`); recórtalo a estas cinco secciones.*
+Reglas: **público y AGPL** (es la oferta de fuente de la AGPL §13 para quien use la web); **nada interno ni secreto en las imágenes**; versiones de terceros y bases **fijadas por commit, checksum y digest**; el parche **falla si cambia un ancla**, nunca configura a medias.
 
 ## 2. Ficheros clave
 
 | Ruta | Qué contiene |
 | --- | --- |
-| `harness.config.json` | Los comandos de tu stack (instalar, test, lint, mutación, build): el único punto que depende del lenguaje (`docs/configuration.md`) |
-| `src/` · `tests/` | Código de la aplicación y sus tests |
-| `features/<capacidad>.feature` | Spec viva de una capacidad (Given/When/Then); el PR que cambia la capacidad actualiza su `.feature` |
-| `docs/` | Detalle por tema: `tdd`, `gherkin`, `verification`, `conventions`, `architecture`, `mutation-testing`, `tooling` y `modelos` (qué modelo es cada nivel en cada herramienta) |
-| `CHECKPOINTS.md` | Criterios objetivos de «estado final correcto», para autoevaluarte |
-| `.claude/agents/` | Agentes de nivel (`worker_fast`, `worker_balanced`, `reviewer_frontier`) y especialistas opt-in de solo lectura |
-| `.github/agents/` · `.codex/agents/` · `.opencode/agents/` | Los tres agentes de nivel para Copilot, Codex y OpenCode, con el mismo cuerpo que los de `.claude/agents/`; el modelo de cada herramienta, en `docs/modelos.md` |
-| `.github/` | Plantillas de issue de tarea y de PR, y el check «Cuerpo del PR» (`node .harness/pr-body.mjs`) |
-| `harness.manifest.json` · `scripts/harness-upgrade.mjs` | Qué es de la plantilla y qué del proyecto; `--check` y `--diff` miran la deriva, `--apply` la reemplaza |
-| `.harness/impacto-tareas.mjs` | Candidatos de «Impacto en tareas anteriores»: PR e issues previos que tocaron los mismos ficheros (sin LLM, con tope fijo) |
-| `docs/memoria-organizacional.md` · `docs/instrucciones-de-usuario.md` · `docs/autonomous.md` | Memoria de la organización, plantilla de instrucciones de usuario y bot de auto-mejora |
+| `src/web/` | Imagen web: `Dockerfile` (descarga VDO.Ninja v30.2 verificada, aplica el parche, nginx sin privilegios), `parche-config.sh`, `nginx/default.conf` |
+| `src/senal/` | Imagen de señalización: `vdoninja_advanced.js` de `steveseguin/websocket_server` en WebSocket plano por :8080 |
+| `tests/` | Tests del parche (`parche-config.test.mjs`, fixture literal de v30.2) y prueba de humo de la señalización (`humo-senal.mjs`) |
+| `.github/workflows/imagen.yml` | Construye, prueba, escanea (Trivy) y publica las dos imágenes por digest |
+| `harness.config.json` | `lint` (shellcheck) y `test` (node --test) del arnés |
+| `CHECKPOINTS.md` · `.claude/agents/` · `.github/` | Del arnés SSD (ver el bloque final de este fichero) |
 
 ## 3. Desarrollo y validación
 

@@ -1,0 +1,254 @@
+name: Imagen
+
+# Construye, prueba y publica en GHCR las dos imágenes de reuniones.cenitdigital.es (KubernetesInfrastructure#64):
+#   ghcr.io/cenit-digital/reuniones-web    (src/web: VDO.Ninja v30.2 configurado, nginx sin privilegios)
+#   ghcr.io/cenit-digital/reuniones-senal  (src/senal: vdoninja_advanced.js, WebSocket plano)
+# - Job `imagen` (siempre, sin permisos de escritura): construye, prueba y escanea.
+# - Job `publicar` (solo push a main o a mano desde main; único con packages: write): publica :sha-<commit> y deja en el
+#   resumen la referencia con digest, que es lo que se copia al Deployment.
+# Etiquetas inmutables y nunca `latest`. Acciones fijadas por hash de commit (la versión, en el comentario).
+# Repo público: estos minutos de Actions no cuentan para el cupo de la organización.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - ".github/workflows/imagen.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - ".github/workflows/imagen.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: imagen-${{ github.ref }}
+  # Una publicación a medias no se cancela; las pruebas de un PR, sí.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  tests:
+    name: Tests del parche
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1  # v7.1.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+      - run: node --test tests/*.test.mjs
+
+  imagen:
+    name: Imagen ${{ matrix.nombre }}
+    needs: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nombre: web
+            contexto: src/web
+            imagen: ghcr.io/cenit-digital/reuniones-web
+            usuario: "101"
+            tope_bytes: "200000000"
+          - nombre: senal
+            contexto: src/senal
+            imagen: ghcr.io/cenit-digital/reuniones-senal
+            usuario: "1000"
+            tope_bytes: "200000000"
+    env:
+      IMAGEN: ${{ matrix.imagen }}
+      PRUEBA: local/reuniones-${{ matrix.nombre }}:prueba
+      TOPE_BYTES: ${{ matrix.tope_bytes }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+
+      - name: Etiquetas
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6.2.0
+        with:
+          images: ${{ matrix.imagen }}
+          tags: type=sha,format=long
+          flavor: latest=false
+
+      # Sin atestaciones: el exportador local (load) no las admite. La caché de GitHub Actions (por imagen) la reutiliza el job
+      # publicar, que reconstruye desde las mismas entradas fijadas; su digest no es el de esta imagen de prueba (lleva SBOM).
+      - name: Construir para probar
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
+        with:
+          context: ${{ matrix.contexto }}
+          platforms: linux/amd64
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=${{ matrix.nombre }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.nombre }}
+          tags: ${{ env.PRUEBA }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Prueba de arranque (raíz de solo lectura, sin capacidades)
+        env:
+          NOMBRE: ${{ matrix.nombre }}
+          USUARIO: ${{ matrix.usuario }}
+        run: |
+          set -euo pipefail
+          docker run -d --name prueba --read-only --tmpfs /tmp --user "$USUARIO" --cap-drop ALL \
+            --security-opt no-new-privileges -p 8080:8080 "$PRUEBA"
+          trap 'docker logs prueba 2>&1 | tail -n 50; docker rm -f prueba >/dev/null' EXIT
+          for _ in $(seq 1 30); do
+            curl -fsS -o /dev/null http://127.0.0.1:8080/ && break
+            sleep 1
+          done
+          fallo=0
+          codigo() { curl -sS -o /dev/null -w '%{http_code}' "http://127.0.0.1:8080$1"; }
+          esperar() {
+            local c; c="$(codigo "$1")"; echo "$1 -> $c"
+            [ "$c" = "$2" ] || { echo "::error::$1 devolvió $c (se esperaba $2)"; fallo=1; }
+          }
+          if [ "$NOMBRE" = web ]; then
+            esperar / 200
+            esperar /thirdparty/adapter.js 200
+            esperar /webrtc.js 200
+            esperar /index.html 302
+            esperar /wss 404
+            # Redirección abierta (revisión de seguridad M1): nunca un Location hacia otro host.
+            # Se mira la cabecera Location cruda (curl no trata «\» como «/» al resolverla): falla si empieza por «//», por «/\»
+            # o lleva esquema.
+            for ruta in '//evil.example.html' '//evil.example/x/y.html' '/%5Cevil.example.html' '/\evil.example.html'; do
+              loc="$(curl -sS -o /dev/null -D - --path-as-is "http://127.0.0.1:8080${ruta}" | tr -d '\r' |
+                sed -n 's/^[Ll]ocation: //p')"
+              echo "${ruta} -> Location: ${loc:-(ninguna)}"
+              case "$loc" in
+                //*|/\\*|*://*) echo "::error::${ruta} redirige fuera: ${loc}"; fallo=1 ;;
+              esac
+            done
+            # Y la redirección legítima sigue funcionando.
+            loc="$(curl -sS -o /dev/null -D - http://127.0.0.1:8080/mixer.html | tr -d '\r' | sed -n 's/^[Ll]ocation: //p')"
+            [ "$loc" = "/mixer" ] || { echo "::error::/mixer.html redirige a «${loc}» (se esperaba /mixer)"; fallo=1; }
+            # La configuración del parche está en lo que se sirve.
+            html="$(curl -fsS http://127.0.0.1:8080/)"
+            for linea in 'session.wss = "wss://reuniones.cenitdigital.es/wss";' 'session.customWSS = false;' \
+                         'session.salt = "reuniones.cenitdigital.es";'; do
+              grep -qF "$linea" <<<"$html" || { echo "::error::falta en /: $linea"; fallo=1; }
+            done
+            grep -qF someEncryptionKey123 <<<"$html" && { echo "::error::sigue la contraseña de ejemplo"; fallo=1; }
+            for ruta in / /thirdparty/adapter.js /webrtc.js; do
+              curl -sS -o /dev/null -D - "http://127.0.0.1:8080${ruta}" | grep -iq '^cache-control: no-cache' \
+                || { echo "::error::${ruta} sin Cache-Control: no-cache"; fallo=1; }
+            done
+          else
+            # Cliente WebSocket con el Node de la propia imagen (WebSocket global de Node 22), en la red del contenedor.
+            docker run --rm --network container:prueba --read-only --user "$USUARIO" --cap-drop ALL \
+              -v "$PWD/tests/humo-senal.mjs:/humo.mjs:ro" --entrypoint node "$PRUEBA" /humo.mjs ws://127.0.0.1:8080/wss \
+              || fallo=1
+            # Tope de conexiones de limites.cjs: otro contenedor con MAX_CONEXIONES=1 rechaza la segunda.
+            docker run -d --name prueba-tope --read-only --user "$USUARIO" --cap-drop ALL -e MAX_CONEXIONES=1 "$PRUEBA"
+            sleep 2
+            docker run --rm --network container:prueba-tope --read-only --user "$USUARIO" --cap-drop ALL \
+              -v "$PWD/tests/humo-senal.mjs:/humo.mjs:ro" --entrypoint node "$PRUEBA" /humo.mjs ws://127.0.0.1:8080/wss tope \
+              || fallo=1
+            docker rm -f prueba-tope >/dev/null
+          fi
+          exit "$fallo"
+
+      - name: Tamaño de la imagen
+        run: |
+          set -euo pipefail
+          bytes="$(docker image inspect --format '{{.Size}}' "$PRUEBA")"
+          echo "Tamaño: ${bytes} bytes (tope ${TOPE_BYTES})"
+          echo "- ${IMAGEN}: $((bytes / 1000000)) MB (tope $((TOPE_BYTES / 1000000)) MB)" >> "$GITHUB_STEP_SUMMARY"
+          [ "$bytes" -lt "$TOPE_BYTES" ] || { echo "::error::la imagen supera el tope"; exit 1; }
+
+      # Puerta: falla con vulnerabilidades CRITICAL o HIGH que ya tienen arreglo.
+      - name: Escaneo de vulnerabilidades
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: ${{ env.PRUEBA }}
+          version: v0.70.0
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+  # Único job con permiso de escritura en GHCR (revisión de seguridad M3): solo en main, nunca en un PR. Reconstruye con la caché
+  # del job imagen y desde las mismas entradas fijadas (commit, checksum y digests) que ya se probaron y escanearon allí.
+  publicar:
+    name: Publicar ${{ matrix.nombre }}
+    needs: imagen
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nombre: web
+            contexto: src/web
+            imagen: ghcr.io/cenit-digital/reuniones-web
+          - nombre: senal
+            contexto: src/senal
+            imagen: ghcr.io/cenit-digital/reuniones-senal
+    env:
+      IMAGEN: ${{ matrix.imagen }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+
+      - name: Etiquetas
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6.2.0
+        with:
+          images: ${{ matrix.imagen }}
+          tags: type=sha,format=long
+          flavor: latest=false
+
+      - name: Iniciar sesión en GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Las atestaciones (SBOM y procedencia) crean en GHCR versiones sin etiqueta (ADR 0012 de la infraestructura).
+      - name: Publicar
+        id: publicar
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
+        with:
+          context: ${{ matrix.contexto }}
+          platforms: linux/amd64
+          push: true
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.nombre }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Referencia para el Deployment
+        env:
+          DIGEST: ${{ steps.publicar.outputs.digest }}
+        run: |
+          set -euo pipefail
+          ref="${IMAGEN}:sha-${GITHUB_SHA}@${DIGEST}"
+          echo "$ref"
+          { echo "## Imagen publicada"; echo ""; echo '```'; echo "$ref"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
