@@ -39,3 +39,4 @@ Thumbs.db
 *.log
 .idea/
 .vscode/
+.impeccable/config.local.json
