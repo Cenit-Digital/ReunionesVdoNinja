@@ -23,8 +23,8 @@ jobs:
           node-version: "22"
           package-manager-cache: false # sin caché automático: falla con "packageManager: pnpm" (ver pr-body.yml)
       - run: node .harness/harness.mjs init
-      - name: Tests del script de propagación, del manifiesto y del comprobador del PR
-        run: node --test .harness/test/upgrade.test.mjs .harness/test/pr-body.test.mjs
+      - name: Tests del script de propagación, del manifiesto, del comprobador del PR y de la puerta de diseño
+        run: node --test .harness/test/upgrade.test.mjs .harness/test/pr-body.test.mjs .harness/test/impeccable-gate.test.mjs
 
   engine-tests:
     name: Motor (tests)

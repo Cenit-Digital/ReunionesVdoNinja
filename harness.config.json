@@ -21,5 +21,9 @@
   "rules": {
     "require_tests_to_close": false,
     "require_mutation_to_close": false
+  },
+  "ui": {
+    "paths": [],
+    "routes": []
   }
 }
