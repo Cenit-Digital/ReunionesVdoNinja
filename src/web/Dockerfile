@@ -5,7 +5,7 @@
 # La base va fijada por digest (Docker Hub), la misma que usa nails-demo.
 
 # --- fuente: descarga verificada y parche (busybox de la base: sh, tar, gzip, awk, grep) ---
-FROM docker.io/nginxinc/nginx-unprivileged:1.30.6-alpine-slim@sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6 AS fuente
+FROM docker.io/nginxinc/nginx-unprivileged:1.31.7-alpine-slim@sha256:a8cb0f33d51fa107c96fd2bd3a71aaf564ec131e9d2bdf8700944f0ed8b170d7 AS fuente
 USER root
 WORKDIR /src
 ADD --checksum=sha256:4f1efffe29e043393cddd6b26b03c5a5c641e5e5d24a2050c3b99ac0f37a34d2 \
@@ -17,7 +17,7 @@ RUN mkdir /src/html \
     && sh /src/parche-config.sh /src/html/index.html
 
 # --- runtime: nginx sin privilegios (UID 101, pid y *_temp_path en /tmp) ---
-FROM docker.io/nginxinc/nginx-unprivileged:1.30.6-alpine-slim@sha256:5d8bb9437d74a600ec5dbf90c035451c724dc33eac8d3a71078f6f8612c345f6
+FROM docker.io/nginxinc/nginx-unprivileged:1.31.7-alpine-slim@sha256:a8cb0f33d51fa107c96fd2bd3a71aaf564ec131e9d2bdf8700944f0ed8b170d7
 LABEL org.opencontainers.image.source="https://github.com/Cenit-Digital/ReunionesVdoNinja" \
       org.opencontainers.image.description="VDO.Ninja v30.2 configurado para reuniones.cenitdigital.es" \
       org.opencontainers.image.licenses="AGPL-3.0-only"
