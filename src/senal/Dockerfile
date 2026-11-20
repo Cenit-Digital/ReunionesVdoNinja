@@ -30,7 +30,9 @@ ENV NODE_ENV=production \
     PORT=8080 \
     NODE_OPTIONS="--require=/app/limites.cjs --max-old-space-size=160"
 # npm, npx y corepack no hacen falta para ejecutar el servidor: menos superficie y menos CVE que escanear.
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+# musl, musl-utils y zlib con sus arreglos de Alpine (CVE-2026-107891 y CVE-2026-85091, HIGH) mientras la base no los traiga.
+RUN apk upgrade --no-cache musl musl-utils zlib \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
     /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 WORKDIR /app
 COPY --from=fuente --chown=root:root /final /app

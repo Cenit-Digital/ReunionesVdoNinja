@@ -28,7 +28,9 @@ RUN sed -i 's/^worker_processes  auto;$/worker_processes  2;/' /etc/nginx/nginx.
 COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 # Los ficheros servidos son de root: nginx (101) solo los lee. Se quitan antes los de ejemplo de la base.
 USER root
-RUN rm -rf /usr/share/nginx/html/*
+# musl, musl-utils y zlib con sus arreglos de Alpine (CVE-2026-107891 y CVE-2026-85091, HIGH) mientras la base no los traiga.
+RUN apk upgrade --no-cache musl musl-utils zlib \
+    && rm -rf /usr/share/nginx/html/*
 COPY --from=fuente --chown=root:root /src/html /usr/share/nginx/html
 USER 101
 EXPOSE 8080
